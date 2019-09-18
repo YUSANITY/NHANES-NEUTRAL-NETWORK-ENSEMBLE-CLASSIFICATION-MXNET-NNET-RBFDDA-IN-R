@@ -15,3 +15,7 @@ As the selected datasets are complex and may have nonlinear relationships betwee
 The R package CARET (Classification And REgression Training) provided the functions to streamline the neural network model training, testing and building of the ensemble. 
 We will train a single layer perceptron model from NNET library, multi-layer perceptron model from MXNET library and radial basis function with dynamic decay adjustment algorithm model from RSNNS library in R. 
 Lastly, we will utilise the caretStack function from the caretEnsemble library with K-nearest neighbour algorithm in R to create the ensemble of the three NN model for the final predication. 
+
+
+## 2.0 REPORT ##
+Please refer to PDF report for more information. 

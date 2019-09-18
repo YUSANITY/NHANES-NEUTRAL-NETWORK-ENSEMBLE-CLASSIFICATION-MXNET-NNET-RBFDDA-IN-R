@@ -1,0 +1,242 @@
+---
+title: "MXNET_NNET_RBFDDA_ESSSEMBLE_WITH_KNN_ALGORITHM"
+output: html_notebook
+---
+# REFERENCES
+# https://cran.r-project.org/web/packages/caret/caret.pdf
+# https://cran.r-project.org/web/packages/ROSE/ROSE.pdf
+# https://cran.r-project.org/web/packages/nnet/nnet.pdf
+# https://s3.amazonaws.com/mxnet-prod/docs/R/mxnet-r-reference-manual.pdf
+# https://cran.r-project.org/web/packages/RSNNS/RSNNS.pdf
+# https://machinelearningmastery.com/machine-learning-ensembles-with-r/
+# https://rpubs.com/zxs107020/370699
+# https://cran.r-project.org/web/packages/caretEnsemble/vignettes/caretEnsemble-intro.html
+# https://www.analyticsvidhya.com/blog/2016/12/practical-guide-to-implement-machine-learning-with-caret-package-in-r-with-practice-problem/
+
+
+# LOAD THE REQUIRED LIBRARY
+```{r}
+require(caret)
+require(DMwR)
+require(ROSE)
+require(caretEnsemble)
+```
+# SET WORKING PATH AND READ CSV 
+```{r}
+setwd("~/SANDY/workbench/1_R/2_NOTEBOOK/V1")
+clean_data_orginal <- read.csv("NHANES_2013-2014_Subset-unbalanced_removedNA_recode1Yes0No1Male0Female-2.csv",header = TRUE)
+```
+#SET LEVELS AND TARGET VARIABLE FACTOR
+```{r}
+clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction[clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction==1] <- "Yes"
+clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction[clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction==0] <- "No"
+clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction <- as.factor(clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction)
+```
+# DIVIDE THE DATA INTO TRAINING AND VALIDATION DATASET
+```{r}
+set.seed(43)
+splitIndex_org  <- createDataPartition(clean_data_orginal$MCQ160E_HeartAttack_MyocardialInfarction, p =0.80, list = FALSE)
+train_data_org     <- clean_data_orginal[ splitIndex_org,]
+test_data_org      <- clean_data_orginal[-splitIndex_org,]
+```
+# BALANCING DATA USING ROSE 
+```{r}
+train_data_org$MCQ160E_HeartAttack_MyocardialInfarction <- as.factor(train_data_org$MCQ160E_HeartAttack_MyocardialInfarction)
+train_data_org_balanced <- ROSE(MCQ160E_HeartAttack_MyocardialInfarction~.,  data=train_data_org,N=10000, p=0.2, seed = 1234)$data 
+```
+# SETTING TRAINING CONTROL SETTING
+```{r}
+# K-fold cross validation with k=10
+train_ctrl <- trainControl("cv", number = 10,classProbs = TRUE, savePredictions = TRUE)
+```
+
+# FITTING NNET MODEL
+```{r}
+modelLookup(model='nnet')
+```
+```{r}
+set.seed(12345)
+nnet_grid <- expand.grid(size=3, decay=0.9)#
+# Size is the number of units in hidden layer (nnet fit a single hidden layer neural network).
+# Decay is the regularization parameter to avoid over-fitting. 
+set.seed(12346)
+nnet_model <- caret::train(MCQ160E_HeartAttack_MyocardialInfarction ~., 
+                         data = train_data_org_balanced, 
+                         method = 'nnet', 
+                         preProcess = c('center', 'scale'), 
+                         trControl = train_ctrl, 
+                         tuneGrid = nnet_grid, 
+                         trace = TRUE, 
+                         linout = FALSE) 
+```
+# CONFUSION MATRIX - NNET - TRAINING 
+```{r}
+nnet_tr_results <- predict(nnet_model, newdata=train_data_org_balanced)
+nnet_tr_confusionmatrix <- caret::confusionMatrix(nnet_tr_results, train_data_org_balanced$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(nnet_tr_confusionmatrix) 
+```
+# CONFUSION MATRIX - NNET - TEST
+```{r}
+nnet_t_results <- predict(nnet_model, newdata=test_data_org)
+nnet_t_confusionmatrix <- caret::confusionMatrix(nnet_t_results, test_data_org$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(nnet_t_confusionmatrix) 
+```
+# SAVE NNET MODEL 
+```{r}
+saveRDS(nnet_model,"nnet_model.rds")
+```
+
+# FITTING RBF MODEL WITH DYNAMIC DECAY ADJUSTMENT (DDA) ALGORITHM
+```{r}
+modelLookup(model='rbfDDA')
+```
+```{r}
+set.seed(12345)
+rbf_grid = expand.grid(negativeThreshold=0.0000000000001)#0.0000000000001
+set.seed(12346)
+system.time(rbf_model <- caret::train(MCQ160E_HeartAttack_MyocardialInfarction ~., 
+                          data = train_data_org_balanced, 
+                          method = 'rbfDDA', 
+                          preProcess = c('center', 'scale'), 
+                          trControl = train_ctrl, 
+                          tuneGrid = rbf_grid, 
+                          trace = TRUE, 
+                          linout = FALSE))
+
+```
+#CONFUSION MATRIX - RBF - TRAINING 
+```{r}
+rbf_tr_results <- predict(rbf_model, newdata=train_data_org_balanced)
+rbf_tr_confusionmatrix <- caret::confusionMatrix(rbf_tr_results, train_data_org_balanced$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(rbf_tr_confusionmatrix) 
+```
+#CONFUSION MATRIX - RBF - TEST
+```{r}
+rbf_t_results <- predict(rbf_model, newdata=test_data_org)
+rbf_t_confusionmatrix <- caret::confusionMatrix(rbf_t_results, test_data_org$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(rbf_t_confusionmatrix) 
+```
+# SAVE RBF MODEL 
+```{r}
+saveRDS(rbf_model, "rbf_model.rds")
+```
+
+# FITTING MXNET MODEL
+```{r}
+require(mxnet)
+modelLookup(model='mxnet')
+```
+```{r}
+set.seed(12345)
+mxnet_grid = expand.grid(layer1=750,#250
+                         layer2=350,#180
+                         layer3=150,#120
+                         learning.rate=0.005,
+                         momentum=0.98,#0.98
+                         dropout=0.000001,#0.001
+                         activation='relu')
+set.seed(12346)
+mxnet_model <- caret::train(MCQ160E_HeartAttack_MyocardialInfarction ~., 
+                            data = train_data_org_balanced, 
+                            method = 'mxnet', 
+                            preProcess = c('center', 'scale'), 
+                            trControl = train_ctrl, 
+                            tuneGrid = mxnet_grid)
+```
+# CONFUSION MATRIX - MXNET - TRAINING 
+```{r}
+mxnet_tr_results<- predict(mxnet_model, newdata=train_data_org_balanced)
+mxnet_tr_confusionmatrix <- caret::confusionMatrix(mxnet_tr_results, train_data_org_balanced$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(mxnet_tr_confusionmatrix) 
+```
+# CONFUSION MATRIX - MXNET - TEST
+```{r}
+mxnet_t_results<- predict(mxnet_model, newdata=test_data_org)
+mxnet_t_confusionmatrix <- caret::confusionMatrix(mxnet_t_results, test_data_org$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+print(mxnet_t_confusionmatrix) 
+```
+# SAVE MXNET MODEL 
+```{r}
+saveRDS(mxnet_model,"mxnet_model.rds")
+```
+
+# CREATING ESSEMBLE MODELLING OF NNET, MXNET, RBFDDA with K_NEAREST NEIGBOUR ALGORITHM
+```{r}
+# SETTING TRAINING CONTROL SETTING
+# K-fold cross validation with k=10
+set.seed(12345)
+train_ctrl_essemble <- trainControl("cv", 
+                                    number = 10, 
+                                    #search = "grid", 
+                                    savePredictions ='final', 
+                                    #index = createFolds(train_data_org_balanced$MCQ160E_HeartAttack_MyocardialInfarction, 10), 
+                                    #summaryFunction = twoClassSummary, 
+                                    classProbs = TRUE)
+                                    #verboseIter = TRUE)
+
+```
+```{r}
+set.seed(12346)
+# Creating essemble
+# using the tune parameter indentified earlier we create a caret stack list for the models. 
+
+require(mxnet)
+model_list <- caretList( MCQ160E_HeartAttack_MyocardialInfarction ~., 
+                         data = train_data_org_balanced, 
+                         preProcess = c('center', 'scale'), 
+                         trControl= train_ctrl_essemble,
+                         tuneList=list(  nnet=caretModelSpec(method='nnet',   tuneGrid=expand.grid(size=3, decay=0.9)),
+                                         rbfDDA=caretModelSpec(method='rbfDDA', tuneGrid=expand.grid(negativeThreshold=0.0000000000001)), 
+                                          mxnet=caretModelSpec(method='mxnet',  tuneGrid=expand.grid(layer1=750,#250
+                                                                                                   layer2=350,#180
+                                                                                                    layer3=150,#120
+                                                                                                    learning.rate=0.005,
+                                                                                                    momentum=0.98,#0.98
+                                                                                                    dropout=0.000001,#0.001
+                                                                                                    activation='relu'))))
+```
+```{r}
+saveRDS(model_list,"model_list.rds")
+```
+```{r}
+#Load Prerun Model from the screen above.
+model_list <- readRDS("model_list.rds")
+```
+```{r}
+# Create stack list essemble with KNN algorithm.
+set.seed(12347)
+stackControl <-  trainControl(method = "repeatedcv", number = 10, repeats = 3,savePredictions = TRUE, classProbs = TRUE, verboseIter = TRUE)
+set.seed(123481)
+stack <- caretStack(model_list, method = "knn", metric = "Accuracy", trControl = stackControl) #rpart 
+```
+```{r}
+#Find the confusion matrix of essemble with test data. 
+
+stack_test_preds_results <- predict(stack, newdata=test_data_org)
+stack_test_preds_confusionmatrix <- caret::confusionMatrix(stack_test_preds_results, test_data_org$MCQ160E_HeartAttack_MyocardialInfarction,positive="Yes")
+```
+```{r}
+print(stack_test_preds_confusionmatrix) 
+```
+
+
+
+```{r}
+rbf_model <-readRDS("rbf_model.rds")
+nnet_model <-readRDS("nnet_model.rds")
+mxnet_model <-readRDS("mxnet_model.rds")
+model_list <-readRDS("model_list.rds")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
